@@ -1,62 +1,146 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>60s 聚合信息流</title>
     <!-- 引入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 SortableJS 用于拖拽排序 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        slate: {
+                            850: '#1e293b', // 自定义深色卡片背景
+                            900: '#0f172a', // 自定义深色页面背景
+                        }
+                    }
+                }
+            }
+        }
+    </script>
     <style>
         /* 自定义滚动条 */
         ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .dark ::-webkit-scrollbar-thumb { background: #475569; }
+        .dark ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
-        /* 瀑布流布局 */
-        .masonry-grid { column-count: 1; column-gap: 1.5rem; }
-        @media (min-width: 640px) { .masonry-grid { column-count: 2; } }
-        @media (min-width: 1024px) { .masonry-grid { column-count: 3; } }
-        @media (min-width: 1280px) { .masonry-grid { column-count: 4; } }
-        .break-inside-avoid { break-inside: avoid; }
+        /* 歌词滚动条隐藏 */
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        
+        /* 拖拽相关样式 */
+        .sortable-ghost { opacity: 0.4; background-color: #f1f5f9; }
+        .dark .sortable-ghost { background-color: #334155; }
+        .drag-handle { cursor: grab; touch-action: none; }
+        .drag-handle:active { cursor: grabbing; }
+        
+        /* 动画优化 */
+        .card-wrapper { transition: transform 0.2s, box-shadow 0.2s; }
     </style>
 </head>
-<body class="bg-slate-100 text-slate-800 min-h-screen">
+<body class="bg-slate-100 text-slate-800 min-h-screen transition-colors duration-300 dark:bg-slate-900 dark:text-slate-100 font-sans">
 
     <!-- 顶部导航 -->
-    <header class="bg-white shadow-sm sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            <div class="flex items-center gap-2">
+    <header class="bg-white/80 dark:bg-slate-800/90 backdrop-blur-md shadow-sm sticky top-0 z-50 transition-colors duration-300 border-b border-slate-200 dark:border-slate-700">
+        <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
+            <!-- Logo -->
+            <div class="flex items-center gap-2 cursor-pointer flex-shrink-0" onclick="window.scrollTo(0,0)">
                 <span class="text-2xl">🚀</span>
-                <h1 class="text-xl font-bold tracking-tight text-slate-900">60s 信息流看板</h1>
+                <h1 class="text-xl font-bold tracking-tight text-slate-900 dark:text-white hidden sm:block">60s 看板</h1>
             </div>
-            <div class="text-xs text-slate-500 flex items-center gap-2">
-                <span id="update-time">更新中...</span>
+
+            <!-- 全局搜索框 -->
+            <div class="flex-1 max-w-md relative">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <svg class="h-5 w-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                    </svg>
+                </div>
+                <input type="text" id="global-search" placeholder="搜索热搜、新闻..." class="block w-full pl-10 pr-3 py-2 border border-slate-300 dark:border-slate-600 rounded-full leading-5 bg-slate-50 dark:bg-slate-700/50 text-slate-900 dark:text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors" oninput="handleSearch(this.value)">
+            </div>
+
+            <!-- 右侧工具栏 -->
+            <div class="flex items-center gap-2 sm:gap-3">
+                <div class="text-xs text-slate-500 dark:text-slate-400 hidden lg:block">
+                    <span id="update-time">更新中...</span>
+                </div>
+                
+                <!-- 设置按钮 -->
+                <button onclick="toggleSettingsModal()" class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-slate-300" title="板块设置">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                </button>
+
+                <!-- 深色模式切换按钮 -->
+                <button onclick="toggleDarkMode()" class="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors text-slate-600 dark:text-yellow-400" title="切换模式">
+                    <svg id="moon-icon" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                    <svg id="sun-icon" class="w-5 h-5 block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                </button>
             </div>
         </div>
     </header>
 
     <!-- 主内容 -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div id="status-bar" class="hidden mb-6 p-4 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 text-sm">
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative">
+        <div id="status-bar" class="hidden mb-6 p-4 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg border border-blue-100 dark:border-blue-800 text-sm">
             正在初始化数据...
         </div>
-        <div class="masonry-grid" id="dashboard-container"></div>
+        <!-- 容器 ID 保持不变，但 CSS 布局将由 JS 动态控制 -->
+        <div id="dashboard-container"></div>
     </main>
 
+    <!-- 模态框：设置面板 -->
+    <div id="settings-modal" class="fixed inset-0 z-[100] hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity backdrop-blur-sm" onclick="toggleSettingsModal()"></div>
+        <div class="fixed inset-0 z-10 overflow-y-auto">
+            <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+                <div class="relative transform overflow-hidden rounded-lg bg-white dark:bg-slate-800 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-md border dark:border-slate-700 flex flex-col max-h-[85vh]">
+                    <div class="bg-white dark:bg-slate-800 px-4 pt-5 pb-4 sm:p-6 border-b border-slate-100 dark:border-slate-700">
+                        <h3 class="text-lg font-semibold leading-6 text-slate-900 dark:text-white" id="modal-title">自定义板块与排序</h3>
+                        <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">长按右侧图标拖动排序，勾选控制显示</p>
+                    </div>
+                    
+                    <div class="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-2" id="settings-options">
+                        <!-- 选项将由 JS 生成 -->
+                    </div>
+
+                    <div class="bg-slate-50 dark:bg-slate-700/50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6 border-t border-slate-100 dark:border-slate-700">
+                        <button type="button" class="inline-flex w-full justify-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 sm:ml-3 sm:w-auto transition-colors" onclick="saveSettings()">保存生效</button>
+                        <button type="button" class="mt-3 inline-flex w-full justify-center rounded-md bg-white dark:bg-slate-800 px-3 py-2 text-sm font-semibold text-slate-900 dark:text-slate-300 shadow-sm ring-1 ring-inset ring-slate-300 dark:ring-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 sm:mt-0 sm:w-auto transition-colors" onclick="toggleSettingsModal()">取消</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 回到顶部按钮 -->
+    <button id="back-to-top" onclick="window.scrollTo(0,0)" class="fixed bottom-8 right-8 p-3 bg-blue-600 text-white rounded-full shadow-lg hover:bg-blue-700 hover:-translate-y-1 transition-all transform translate-y-20 opacity-0 z-40 focus:outline-none">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path></svg>
+    </button>
+
     <!-- 页脚 -->
-    <footer class="text-center py-8 text-slate-400 text-sm">
+    <footer class="text-center py-8 text-slate-400 text-sm dark:text-slate-600">
         <p>Data provided by 60s-api.viki.moe</p>
     </footer>
 
     <script>
-        const API_BASE = 'https://60s-api.viki.moe';
+        const API_BASE = 'https://60s.jiek.top:8443';
         
-        // 数据源配置
+        // 核心数据源定义
         const dataSources = [
+            { id: 'weather', name: '实时天气', url: '/v2/weather', type: 'weather', icon: '🌦️', color: 'bg-sky-500' },
             { id: '60s', name: '每天60秒读懂世界', url: '/v2/60s', type: 'news', icon: '🌍', color: 'bg-blue-500' },
             { id: 'ai', name: 'AI 资讯快报', url: '/v2/ai-news', type: 'ai-news', icon: '🤖', color: 'bg-violet-500' }, 
             { id: 'moyu', name: '摸鱼日报', url: '/v2/moyu', type: 'moyu', icon: '🐟', color: 'bg-cyan-500' }, 
+            { id: 'changya', name: '随机音乐盒', url: '/v2/changya', type: 'audio', icon: '🎤', color: 'bg-fuchsia-500' },
+            { id: 'kfc', name: '随机KFC文案', url: '/v2/kfc', type: 'kfc', icon: '🍗', color: 'bg-red-600' },
+            { id: 'hash', name: '哈希/编解码', url: '/v2/hash', type: 'hash', icon: '#️⃣', color: 'bg-indigo-600' }, 
             { id: 'weibo', name: '微博热搜', url: '/v2/weibo', type: 'rank', icon: '🔥', color: 'bg-red-500' },
             { id: 'bili', name: '哔哩哔哩热搜', url: '/v2/bili', type: 'rank', icon: '📺', color: 'bg-pink-500' },
             { id: 'rednote', name: '小红书热点', url: '/v2/rednote', type: 'rank', icon: '📕', color: 'bg-rose-500' },
@@ -74,49 +158,341 @@
             { id: 'hitokoto', name: '一言', url: '/v2/hitokoto', type: 'quote', icon: '💬', color: 'bg-purple-500' }
         ];
 
-        // 全局变量：当前油价查询城市，默认为北京
+        // 全局变量
         let currentOilRegion = '北京';
+        let currentWeatherCity = '杭州'; 
+        let currentHashContent = 'Hello World'; 
+        let currentPlayingAudioId = null;
+        let autoPlayChangya = false;
+        
+        let dashConfig = [];
+        let sortableInstance = null;
+        let resizeTimeout = null;
 
+        // 初始化
         document.addEventListener('DOMContentLoaded', () => {
-            initDashboard();
+            initTheme();
+            initConfig(); 
+            renderMasonryLayout(); // 初始渲染
+            initScrollListener();
+            
+            // 监听窗口大小变化，防抖重排
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(renderMasonryLayout, 200);
+            });
         });
 
-        // 切换油价城市逻辑
-        window.changeOilCity = function() {
-            const newCity = prompt("请输入您想查询的省份或城市 (例如: 上海, 广东, 深圳):", currentOilRegion);
-            if (newCity && newCity.trim() !== "") {
-                currentOilRegion = newCity.trim();
-                refreshCard('oil');
+        function initTheme() {
+            if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                toggleDarkMode(true);
+            } else {
+                toggleDarkMode(false);
             }
+        }
+
+        function initConfig() {
+            const stored = localStorage.getItem('60s_dash_config');
+            if (stored) {
+                try {
+                    const savedConfig = JSON.parse(stored);
+                    dashConfig = savedConfig;
+                    const savedIds = new Set(savedConfig.map(c => c.id));
+                    const newItems = dataSources.filter(s => !savedIds.has(s.id)).map(s => ({ id: s.id, visible: true }));
+                    dashConfig = [...dashConfig, ...newItems];
+                    const validIds = new Set(dataSources.map(s => s.id));
+                    dashConfig = dashConfig.filter(c => validIds.has(c.id));
+                } catch (e) {
+                    dashConfig = dataSources.map(s => ({ id: s.id, visible: true }));
+                }
+            } else {
+                dashConfig = dataSources.map(s => ({ id: s.id, visible: true }));
+            }
+        }
+
+        // 获取当前列数
+        function getColumnCount() {
+            const width = window.innerWidth;
+            if (width < 768) return 1;
+            if (width < 1024) return 2;
+            if (width < 1536) return 3;
+            return 4;
+        }
+
+        // --- 核心：JS 实现的瀑布流布局 (从左到右优先) ---
+        function renderMasonryLayout() {
+            updateTime();
+            const container = document.getElementById('dashboard-container');
+            const colCount = getColumnCount();
+            
+            // 1. 获取现有 DOM (保持状态)
+            const existingCards = new Map();
+            container.querySelectorAll('.card-wrapper').forEach(card => {
+                existingCards.set(card.id, card);
+            });
+            
+            // 2. 重置容器为 Flex Row
+            container.innerHTML = '';
+            container.className = 'flex gap-6 items-start';
+            
+            // 3. 创建 N 个列容器
+            const columns = [];
+            for (let i = 0; i < colCount; i++) {
+                const col = document.createElement('div');
+                col.className = 'flex-1 flex flex-col gap-6 min-w-0'; // min-w-0 防止 flex 子项溢出
+                columns.push(col);
+                container.appendChild(col);
+            }
+
+            // 4. 过滤可见项
+            const visibleItems = dashConfig.filter(c => c.visible);
+            
+            if (visibleItems.length === 0) {
+                container.innerHTML = `<div class="w-full text-center py-20 text-slate-400">您屏蔽了所有板块，请点击右上角设置图标恢复。</div>`;
+                return;
+            }
+
+            // 5. 按顺序分配到列 (Index % colCount)
+            visibleItems.forEach((configItem, index) => {
+                const source = dataSources.find(s => s.id === configItem.id);
+                if (!source) return;
+
+                let card = existingCards.get(`card-${source.id}`);
+                let isNew = false;
+                
+                // 如果没有现成的卡片，创建一个新的
+                if (!card) {
+                    card = createSkeletonCard(source);
+                    isNew = true;
+                }
+                
+                const colIndex = index % colCount;
+                columns[colIndex].appendChild(card); // 先挂载到 DOM
+
+                // 挂载后再请求数据，确保 fetchData 里的 querySelector 能找到元素
+                if (isNew) {
+                    fetchData(source, card.id);
+                }
+            });
+        }
+
+        function initScrollListener() {
+            const btn = document.getElementById('back-to-top');
+            window.addEventListener('scroll', () => {
+                if (window.scrollY > 300) {
+                    btn.classList.remove('translate-y-20', 'opacity-0');
+                } else {
+                    btn.classList.add('translate-y-20', 'opacity-0');
+                }
+            });
+        }
+
+        // --- 设置面板 ---
+        let tempConfig = [];
+
+        function toggleSettingsModal() {
+            const modal = document.getElementById('settings-modal');
+            const optionsContainer = document.getElementById('settings-options');
+            
+            if (modal.classList.contains('hidden')) {
+                tempConfig = JSON.parse(JSON.stringify(dashConfig));
+                renderSettingsList();
+                modal.classList.remove('hidden');
+                
+                if (!sortableInstance) {
+                    sortableInstance = new Sortable(optionsContainer, {
+                        animation: 150,
+                        handle: '.drag-handle',
+                        ghostClass: 'sortable-ghost',
+                        onEnd: function (evt) { }
+                    });
+                }
+            } else {
+                modal.classList.add('hidden');
+            }
+        }
+
+        function renderSettingsList() {
+            const container = document.getElementById('settings-options');
+            container.innerHTML = '';
+
+            tempConfig.forEach((item, index) => {
+                const source = dataSources.find(s => s.id === item.id);
+                if (!source) return;
+
+                const div = document.createElement('div');
+                div.className = 'flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-slate-700/30 border border-slate-100 dark:border-slate-700/50 transition-all select-none';
+                div.setAttribute('data-id', item.id);
+                
+                div.innerHTML = `
+                    <label class="flex items-center space-x-3 cursor-pointer flex-1">
+                        <input type="checkbox" class="form-checkbox h-5 w-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500 dark:bg-slate-800 dark:border-slate-600 transition-colors" 
+                            ${item.visible ? 'checked' : ''}>
+                        <span class="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+                            <span class="${source.color} text-white w-6 h-6 rounded flex items-center justify-center text-xs shadow-sm flex-shrink-0">${source.icon}</span>
+                            ${source.name}
+                        </span>
+                    </label>
+                    <div class="drag-handle p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-grab">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"></path>
+                        </svg>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function saveSettings() {
+            const rows = document.querySelectorAll('#settings-options > div');
+            const newConfig = [];
+            
+            rows.forEach(row => {
+                const id = row.getAttribute('data-id');
+                const checked = row.querySelector('input[type="checkbox"]').checked;
+                newConfig.push({ id: id, visible: checked });
+            });
+            
+            dashConfig = newConfig;
+            localStorage.setItem('60s_dash_config', JSON.stringify(dashConfig));
+            
+            toggleSettingsModal();
+            renderMasonryLayout(); // 重新布局
+        }
+
+        // --- 交互逻辑 ---
+
+        function toggleDarkMode(forceDark = null) {
+            const html = document.documentElement;
+            const moon = document.getElementById('moon-icon');
+            const sun = document.getElementById('sun-icon');
+            let isDark;
+            if (forceDark !== null) {
+                isDark = forceDark;
+            } else {
+                isDark = !html.classList.contains('dark');
+            }
+            if (isDark) {
+                html.classList.add('dark');
+                moon.classList.remove('hidden');
+                sun.classList.add('hidden');
+                localStorage.setItem('theme', 'dark');
+            } else {
+                html.classList.remove('dark');
+                moon.classList.add('hidden');
+                sun.classList.remove('hidden');
+                localStorage.setItem('theme', 'light');
+            }
+        }
+
+        function handleSearch(query) {
+            query = query.toLowerCase().trim();
+            const cards = document.querySelectorAll('.card-wrapper');
+            
+            cards.forEach(card => {
+                const cardTitle = card.querySelector('h2').textContent.toLowerCase();
+                const listItems = card.querySelectorAll('li, .news-item'); 
+                const textContent = card.innerText.toLowerCase();
+
+                if (cardTitle.includes(query)) {
+                    card.style.display = '';
+                    if(listItems.length > 0) listItems.forEach(li => li.style.display = '');
+                    return;
+                }
+
+                let hasMatch = false;
+                if (listItems.length > 0) {
+                    listItems.forEach(li => {
+                        if (li.textContent.toLowerCase().includes(query)) {
+                            li.style.display = '';
+                            hasMatch = true;
+                        } else {
+                            li.style.display = 'none';
+                        }
+                    });
+                } else {
+                    if (textContent.includes(query)) hasMatch = true;
+                }
+                card.style.display = hasMatch ? '' : 'none';
+            });
+        }
+
+        window.changeOilCity = function() {
+            const newCity = prompt("请输入您想查询油价的省份或城市 (如: 上海):", currentOilRegion);
+            if (newCity && newCity.trim() !== "") { currentOilRegion = newCity.trim(); refreshCard('oil'); }
+        };
+        window.changeWeatherCity = function() {
+            const newCity = prompt("请输入您想查询天气的城市 (如: 杭州):", currentWeatherCity);
+            if (newCity && newCity.trim() !== "") { currentWeatherCity = newCity.trim(); refreshCard('weather'); }
+        };
+        window.changeHashContent = function() {
+            const newContent = prompt("请输入您想进行哈希/编码的文本:", currentHashContent);
+            if (newContent && newContent.trim() !== "") { currentHashContent = newContent.trim(); refreshCard('hash'); }
         };
 
-        // 单卡片刷新逻辑
+        window.toggleAudio = function(id) {
+            const audio = document.getElementById(id);
+            const btn = document.getElementById(`btn-${id}`);
+            if (!audio) return;
+            if (currentPlayingAudioId && currentPlayingAudioId !== id) {
+                const prevAudio = document.getElementById(currentPlayingAudioId);
+                const prevBtn = document.getElementById(`btn-${currentPlayingAudioId}`);
+                if (prevAudio) { prevAudio.pause(); if (prevBtn) prevBtn.innerHTML = '<svg class="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>'; }
+            }
+            if (audio.paused) {
+                audio.play(); currentPlayingAudioId = id;
+                btn.innerHTML = '<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+            } else {
+                audio.pause(); currentPlayingAudioId = null;
+                btn.innerHTML = '<svg class="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+            }
+        };
+        window.updateAudioProgress = function(id) {
+            const audio = document.getElementById(id);
+            const bar = document.getElementById(`bar-${id}`);
+            const currTime = document.getElementById(`curr-${id}`);
+            const durTime = document.getElementById(`dur-${id}`);
+            if (!audio) return;
+            const percent = (audio.currentTime / audio.duration) * 100;
+            if (bar) bar.style.width = `${percent}%`;
+            if (currTime) currTime.textContent = formatTime(audio.currentTime);
+            if (durTime && !isNaN(audio.duration)) durTime.textContent = formatTime(audio.duration);
+        };
+        window.resetAudioBtn = function(id) {
+            const btn = document.getElementById(`btn-${id}`);
+            if (btn) btn.innerHTML = '<svg class="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+            const bar = document.getElementById(`bar-${id}`);
+            if (bar) bar.style.width = '0%';
+            currentPlayingAudioId = null;
+        };
+        window.seekAudio = function(event, id) {
+            const audio = document.getElementById(id);
+            const progressBarWrapper = event.currentTarget; 
+            if (!audio || !progressBarWrapper) return;
+            const rect = progressBarWrapper.getBoundingClientRect();
+            const clickX = event.clientX - rect.left;
+            const width = rect.width;
+            const duration = audio.duration;
+            if (!isNaN(duration)) audio.currentTime = (clickX / width) * duration;
+        };
+        window.handleAudioEnded = function(id) {
+            resetAudioBtn(id); autoPlayChangya = true; refreshCard('changya');
+        };
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60); const secs = Math.floor(seconds % 60);
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
         async function refreshCard(sourceId) {
             const source = dataSources.find(s => s.id === sourceId);
             if (!source) return;
-
             const card = document.getElementById(`card-${sourceId}`);
             if (!card) return;
-
             const refreshBtn = card.querySelector('.refresh-btn');
             if (refreshBtn) refreshBtn.classList.add('animate-spin');
-
             await fetchData(source, card.id);
-
             if (refreshBtn) refreshBtn.classList.remove('animate-spin');
-            
             updateTime();
-        }
-
-        function initDashboard() {
-            updateTime();
-            const container = document.getElementById('dashboard-container');
-            
-            dataSources.forEach(source => {
-                const card = createSkeletonCard(source);
-                container.appendChild(card);
-                fetchData(source, card.id);
-            });
         }
 
         function updateTime() {
@@ -124,78 +500,78 @@
             document.getElementById('update-time').textContent = `最后更新: ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
         }
 
-        // --- 核心数据获取 (包含逻辑增强) ---
         async function fetchData(source, cardId) {
             const cardContent = document.querySelector(`#${cardId} .card-content`);
+            if (!cardContent) return; 
             
             if (!cardContent.innerHTML.trim()) {
-                cardContent.innerHTML = '<div class="animate-pulse space-y-3 p-2"><div class="h-2 bg-slate-100 rounded w-3/4"></div><div class="h-2 bg-slate-100 rounded"></div></div>';
+                cardContent.innerHTML = '<div class="animate-pulse space-y-3 p-2"><div class="h-2 bg-slate-100 dark:bg-slate-700 rounded w-3/4"></div><div class="h-2 bg-slate-100 dark:bg-slate-700 rounded"></div></div>';
             }
 
             try {
-                let url = `${API_BASE}${source.url}`;
+                let url = source.url.startsWith('http') ? source.url : `${API_BASE}${source.url}`;
                 const params = new URLSearchParams();
 
-                // 1. 油价参数处理
-                if (source.id === 'oil') {
-                    params.append('region', currentOilRegion);
-                }
-
-                // 通用：添加时间戳防止缓存
+                if (source.id === 'oil') params.append('region', currentOilRegion);
+                if (source.id === 'weather') params.append('query', currentWeatherCity);
+                if (source.id === 'hash') params.append('content', currentHashContent);
                 params.append('t', new Date().getTime());
 
-                // 2. AI 资讯特殊处理 (回退逻辑)
                 if (source.id === 'ai') {
-                    // 尝试请求默认(当天)数据
-                    let res = await fetch(`${url}?${params.toString()}`);
-                    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
-                    let json = await res.json();
+                    let json = null;
+                    let foundData = false;
+                    const maxRetries = 7;
 
-                    // 检查数据是否为空
-                    // 假设 json.data.news 为空数组则说明当天暂无数据
-                    if (!json.data || !json.data.news || json.data.news.length === 0) {
-                        // 计算昨天的日期 YYYY-MM-DD
-                        const yesterday = new Date();
-                        yesterday.setDate(yesterday.getDate() - 1);
-                        const yStr = yesterday.toISOString().split('T')[0];
-                        
-                        console.log(`AI News: Today is empty, fallback to ${yStr}`);
-                        
-                        // 追加 date 参数重新请求
-                        params.append('date', yStr);
-                        res = await fetch(`${url}?${params.toString()}`);
-                        if (res.ok) {
-                            json = await res.json();
+                    for (let i = 0; i < maxRetries; i++) {
+                        const tryParams = new URLSearchParams(params); 
+                        if (i > 0) {
+                            const d = new Date();
+                            d.setDate(d.getDate() - i);
+                            const dateStr = d.toISOString().split('T')[0];
+                            tryParams.append('date', dateStr);
+                            console.log(`AI News: Trying fallback date ${dateStr}...`);
+                        }
+
+                        try {
+                            const res = await fetch(`${url}?${tryParams.toString()}`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                if (data.data && data.data.news && data.data.news.length > 0) {
+                                    json = data;
+                                    foundData = true;
+                                    break; 
+                                }
+                            }
+                        } catch (e) {
+                            console.warn(`AI News fetch failed for day -${i}`, e);
                         }
                     }
-                    
-                    // 渲染最终结果
-                    renderCardContent(cardContent, source.type, json.data || json);
-                    return; // 结束，不执行后续通用逻辑
+                    renderCardContent(cardContent, source.type, (json && json.data) ? json.data : {});
+                    return; 
                 }
 
-                // 3. 通用请求逻辑 (非 AI 资讯)
                 const fetchUrl = `${url}?${params.toString()}`;
                 const response = await fetch(fetchUrl);
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const json = await response.json();
                 const data = json.data || json; 
-
                 renderCardContent(cardContent, source.type, data);
 
             } catch (error) {
                 console.error(`Error fetching ${source.name}:`, error);
-                cardContent.innerHTML = `
-                    <div class="flex flex-col items-center justify-center py-6 text-red-400">
-                        <svg class="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-                        <p class="text-xs">加载失败</p>
-                        <button onclick="refreshCard('${source.id}')" class="mt-2 text-xs text-blue-500 hover:underline">重试</button>
-                    </div>
-                `;
+                if(cardContent) {
+                    cardContent.innerHTML = `
+                        <div class="flex flex-col items-center justify-center py-6 text-red-400 dark:text-red-300">
+                            <svg class="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                            <p class="text-xs">加载失败</p>
+                            <button onclick="refreshCard('${source.id}')" class="mt-2 text-xs text-blue-500 hover:underline dark:text-blue-400">重试</button>
+                        </div>
+                    `;
+                }
             }
         }
 
+        // --- 渲染逻辑分发 ---
         function renderCardContent(container, type, data) {
             container.innerHTML = ''; 
             switch (type) {
@@ -207,46 +583,165 @@
                 case 'history': renderHistory(container, data); break;
                 case 'gold': renderGold(container, data); break;
                 case 'oil': renderOil(container, data); break;
+                case 'weather': renderWeather(container, data); break;
                 case 'moyu': renderMoyu(container, data); break; 
+                case 'kfc': renderKfc(container, data); break; 
+                case 'hash': renderHash(container, data); break; 
+                case 'audio': renderAudio(container, data); break; 
                 case 'quote': renderQuote(container, data); break;
-                default:
-                    container.textContent = `<pre class="text-xs overflow-auto max-h-40">${JSON.stringify(data, null, 2)}</pre>`;
+                default: container.textContent = JSON.stringify(data);
             }
         }
 
-        // --- AI 资讯渲染 ---
-        function renderAiNews(container, data) {
-            if (!data || !data.news || data.news.length === 0) {
-                container.innerHTML = `<div class="text-center text-slate-400 text-sm py-4">暂无更新，请稍后再试</div>`;
-                return;
-            }
+        // --- 各板块具体渲染函数 ---
 
+        function renderWeather(container, data) {
+            const location = data.location || {};
+            const weather = data.weather || {};
+            const air = data.air_quality || {};
+            const city = location.city || currentWeatherCity;
+            
+            container.innerHTML = `
+                <div class="flex flex-col gap-4">
+                    <div class="flex justify-between items-center cursor-pointer group" onclick="changeWeatherCity()" title="点击切换城市">
+                        <div>
+                            <div class="text-3xl font-bold text-sky-600 dark:text-sky-400 flex items-center gap-2">
+                                ${weather.temperature || '0'}°
+                                <span class="text-lg text-slate-500 dark:text-slate-400">${weather.condition || '未知'}</span>
+                            </div>
+                            <div class="flex items-center gap-1 mt-1 text-sm text-slate-600 dark:text-slate-300">
+                                <span class="underline decoration-dotted decoration-sky-300 group-hover:decoration-sky-600 underline-offset-4">${location.name || city}</span>
+                                <svg class="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                            </div>
+                        </div>
+                        <div class="text-right text-xs text-slate-400 dark:text-slate-500 space-y-1">
+                            <div>${weather.wind_direction || ''} ${weather.wind_power || ''}级</div>
+                            <div>湿度 ${weather.humidity || 0}%</div>
+                            <div class="inline-block px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">AQI ${air.aqi || '-'} ${air.quality || ''}</div>
+                        </div>
+                    </div>
+                    <div class="h-1 bg-gradient-to-r from-sky-300 to-transparent rounded-full opacity-50"></div>
+                </div>
+            `;
+        }
+
+        function renderAudio(container, data) {
+            const user = data.user || {};
+            const song = data.song || {};
+            const audio = data.audio || {};
+            const uniqueId = `audio-${Math.random().toString(36).substr(2, 9)}`;
+
+            container.innerHTML = `
+                <div class="flex flex-col gap-3">
+                    <div class="flex items-center gap-2">
+                        <img src="${user.avatar_url || 'https://via.placeholder.com/32'}" alt="avatar" class="w-8 h-8 rounded-full border border-fuchsia-200 dark:border-fuchsia-800 object-cover" onerror="this.src='https://ui-avatars.com/api/?name=User&background=random'">
+                        <div class="flex flex-col">
+                            <span class="text-xs font-bold text-slate-700 dark:text-slate-200">${user.nickname || '匿名用户'}</span>
+                            <span class="text-[10px] text-slate-400">发布于 ${audio.publish ? audio.publish.split(' ')[0] : '未知'}</span>
+                        </div>
+                    </div>
+                    <div class="bg-gradient-to-br from-fuchsia-50 to-white dark:from-fuchsia-900/30 dark:to-slate-800 p-4 rounded-xl border border-fuchsia-100 dark:border-fuchsia-900 shadow-sm relative overflow-hidden group">
+                        <div class="absolute -right-4 -top-4 w-24 h-24 bg-fuchsia-200 dark:bg-fuchsia-900 rounded-full opacity-30 blur-2xl pointer-events-none group-hover:opacity-50 transition-opacity"></div>
+                        <div class="relative z-10">
+                            <div class="mb-2">
+                                <div class="text-sm font-bold text-fuchsia-900 dark:text-fuchsia-100">🎵 ${song.name || '未知歌曲'}</div>
+                                <div class="text-[10px] text-fuchsia-500 dark:text-fuchsia-300 mt-0.5">${song.singer || '未知原唱'}</div>
+                            </div>
+                            <div class="text-xs text-slate-600/90 dark:text-slate-300/90 italic mb-4 leading-relaxed h-16 overflow-y-auto custom-scrollbar pr-2 font-medium">
+                                ${(song.lyrics || ['暂无歌词']).join('<br>')}
+                            </div>
+                            <div class="flex items-center gap-3 bg-white/70 dark:bg-slate-900/70 backdrop-blur-sm p-2.5 rounded-lg border border-fuchsia-100/50 dark:border-fuchsia-800/50 shadow-sm">
+                                <audio id="${uniqueId}" src="${audio.url}" preload="none" ontimeupdate="updateAudioProgress('${uniqueId}')" onended="handleAudioEnded('${uniqueId}')"></audio>
+                                <button onclick="toggleAudio('${uniqueId}')" id="btn-${uniqueId}" class="w-9 h-9 flex items-center justify-center rounded-full bg-gradient-to-tr from-fuchsia-500 to-fuchsia-400 text-white hover:to-fuchsia-500 transition-all shadow hover:shadow-md flex-shrink-0 active:scale-95">
+                                    <svg class="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                </button>
+                                <div class="flex-1 flex flex-col gap-1.5 justify-center">
+                                    <div class="h-1.5 bg-fuchsia-100 dark:bg-slate-700 rounded-full overflow-hidden cursor-pointer relative" onclick="seekAudio(event, '${uniqueId}')">
+                                        <div id="bar-${uniqueId}" class="h-full bg-fuchsia-400 w-0 rounded-full transition-all duration-100 relative"></div>
+                                    </div>
+                                    <div class="flex justify-between text-[10px] text-fuchsia-400 font-mono leading-none">
+                                        <span id="curr-${uniqueId}">00:00</span>
+                                        <span id="dur-${uniqueId}">00:00</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center text-xs text-slate-400 px-1">
+                        <span class="flex items-center gap-1 text-rose-400 font-medium">❤️ ${audio.like_count || 0}</span>
+                        <a href="${audio.link}" target="_blank" class="hover:text-fuchsia-500 transition-colors flex items-center gap-1 group">
+                            <span class="group-hover:underline">去围观</span> 
+                            <svg class="w-3 h-3 transform group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                        </a>
+                    </div>
+                </div>
+            `;
+            if (autoPlayChangya) {
+                autoPlayChangya = false; 
+                setTimeout(() => {
+                    const newAudio = document.getElementById(uniqueId);
+                    if (newAudio) toggleAudio(uniqueId);
+                }, 300);
+            }
+        }
+
+        function renderHash(container, data) {
+            const createRow = (label, value, isCode = true) => `
+                <div class="mb-2 last:mb-0">
+                    <div class="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">${label}</div>
+                    <div class="${isCode ? 'font-mono text-xs bg-slate-50 dark:bg-slate-700/50 border border-slate-100 dark:border-slate-700' : 'text-sm font-medium'} text-slate-700 dark:text-slate-200 p-1.5 rounded break-all">
+                        ${value || '-'}
+                    </div>
+                </div>
+            `;
+            const header = document.createElement('div');
+            header.className = 'border-b border-indigo-100 dark:border-indigo-900 pb-2 mb-3 cursor-pointer group';
+            header.onclick = window.changeHashContent;
+            header.innerHTML = `
+                <div class="text-xs text-indigo-400 mb-1 flex items-center gap-1">源文本 <svg class="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg></div>
+                <div class="text-base font-bold text-slate-800 dark:text-white break-all group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">${data.source || currentHashContent}</div>
+            `;
+            container.appendChild(header);
+            const list = document.createElement('div');
+            list.className = 'space-y-3';
+            if (data.md5) list.innerHTML += createRow('MD5', data.md5);
+            if (data.sha) { if (data.sha.sha1) list.innerHTML += createRow('SHA1', data.sha.sha1); if (data.sha.sha256) list.innerHTML += createRow('SHA256', data.sha.sha256); }
+            if (data.base64) { list.innerHTML += createRow('Base64 Encode', data.base64.encoded); if (data.base64.decoded) list.innerHTML += createRow('Base64 Decode', data.base64.decoded); }
+            if (data.url) list.innerHTML += createRow('URL Encode', data.url.encoded);
+            container.appendChild(list);
+        }
+
+        function renderKfc(container, data) {
+            const text = data.kfc || data.text || '';
+            container.innerHTML = `
+                <div class="relative bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border border-red-100 dark:border-red-900/50 group hover:shadow-sm transition-all">
+                    <div class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow-sm font-bold transform rotate-6 group-hover:rotate-12 transition-transform select-none">疯狂星期四</div>
+                    <div class="text-sm text-slate-700 dark:text-slate-200 leading-relaxed text-justify whitespace-pre-wrap font-medium">${text}</div>
+                    <div class="mt-3 flex justify-end"><span class="text-[10px] text-red-400 bg-red-100/50 dark:bg-red-900/50 px-1.5 py-0.5 rounded select-none">#V50</span></div>
+                </div>
+            `;
+        }
+
+        function renderAiNews(container, data) {
+            if (!data || !data.news || data.news.length === 0) { container.innerHTML = `<div class="text-center text-slate-400 text-sm py-4">暂无更新，请稍后再试</div>`; return; }
             const newsList = data.news;
             const dateStr = data.date || '';
-
-            const headerHtml = dateStr ? `<div class="text-xs text-violet-400 mb-3 font-medium bg-violet-50 inline-block px-2 py-0.5 rounded">📅 ${dateStr}</div>` : '';
-
+            const headerHtml = dateStr ? `<div class="text-xs text-violet-400 mb-3 font-medium bg-violet-50 dark:bg-violet-900/30 inline-block px-2 py-0.5 rounded">📅 ${dateStr}</div>` : '';
             const ul = document.createElement('div');
             ul.innerHTML = headerHtml;
             const listWrapper = document.createElement('ul');
             listWrapper.className = 'space-y-4';
             ul.appendChild(listWrapper);
-            
             newsList.forEach(item => {
                 const li = document.createElement('li');
-                li.className = 'text-sm text-slate-700';
-                
+                li.className = 'text-sm text-slate-700 dark:text-slate-300 news-item'; 
                 li.innerHTML = `
                     <div class="flex items-start gap-2 group">
                         <span class="text-violet-400 mt-1.5 w-1.5 h-1.5 bg-violet-400 rounded-full flex-shrink-0 block group-hover:scale-125 transition-transform"></span>
                         <div class="flex-1">
-                            <a href="${item.link}" target="_blank" class="font-bold text-slate-800 hover:text-violet-600 transition-colors block mb-1">
-                                ${item.title}
-                            </a>
-                            <p class="text-xs text-slate-500 mb-1 leading-relaxed opacity-80 line-clamp-3 hover:line-clamp-none transition-all">${item.detail}</p>
-                            <div class="flex items-center gap-2 mt-1">
-                                <span class="bg-violet-50 text-violet-500 text-[10px] px-1.5 py-0.5 rounded border border-violet-100">${item.source}</span>
-                            </div>
+                            <a href="${item.link}" target="_blank" class="font-bold text-slate-800 dark:text-slate-100 hover:text-violet-600 dark:hover:text-violet-400 transition-colors block mb-1">${item.title}</a>
+                            <p class="text-xs text-slate-500 dark:text-slate-400 mb-1 leading-relaxed opacity-80 line-clamp-3 hover:line-clamp-none transition-all">${item.detail}</p>
+                            <div class="flex items-center gap-2 mt-1"><span class="bg-violet-50 dark:bg-violet-900/30 text-violet-500 text-[10px] px-1.5 py-0.5 rounded border border-violet-100 dark:border-violet-800">${item.source}</span></div>
                         </div>
                     </div>
                 `;
@@ -255,102 +750,75 @@
             container.appendChild(ul);
         }
 
-        // --- 摸鱼日报渲染 ---
         function renderMoyu(container, data) {
             const date = data.date || {};
             const progress = data.progress || {};
             const nextHoliday = data.nextHoliday || { name: '未知', until: 0 };
             const nextWeekend = data.nextWeekend || { daysUntil: 0 };
-            
             const createProgress = (label, value) => `
                 <div class="mb-2">
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-slate-500">${label}</span>
-                        <span class="font-bold text-cyan-600">${value}%</span>
-                    </div>
-                    <div class="w-full bg-slate-100 rounded-full h-2">
-                        <div class="bg-cyan-400 h-2 rounded-full transition-all duration-1000" style="width: ${value}%"></div>
-                    </div>
+                    <div class="flex justify-between text-xs mb-1"><span class="text-slate-500 dark:text-slate-400">${label}</span><span class="font-bold text-cyan-600 dark:text-cyan-400">${value}%</span></div>
+                    <div class="w-full bg-slate-100 dark:bg-slate-700 rounded-full h-2"><div class="bg-cyan-400 h-2 rounded-full transition-all duration-1000" style="width: ${value}%"></div></div>
                 </div>
             `;
-
             container.innerHTML = `
                 <div class="flex flex-col gap-4">
-                    <div class="text-center pb-2 border-b border-cyan-100">
-                        <div class="text-lg font-bold text-slate-700">${date.gregorian || ''} ${date.weekday || ''}</div>
+                    <div class="text-center pb-2 border-b border-cyan-100 dark:border-cyan-900">
+                        <div class="text-lg font-bold text-slate-700 dark:text-slate-200">${date.gregorian || ''} ${date.weekday || ''}</div>
                         <div class="text-xs text-slate-400 mt-1">农历${date.lunar?.monthCN || ''}${date.lunar?.dayCN || ''} · ${date.lunar?.yearGanZhi || ''}${date.lunar?.zodiac || ''}年</div>
                     </div>
-
-                    <div class="bg-cyan-50/50 p-3 rounded-lg border border-cyan-100">
+                    <div class="bg-cyan-50/50 dark:bg-cyan-900/20 p-3 rounded-lg border border-cyan-100 dark:border-cyan-900/50">
                         ${createProgress('本周进度', progress.week?.percentage || 0)}
                         ${createProgress('本月进度', progress.month?.percentage || 0)}
                         ${createProgress('今年进度', progress.year?.percentage || 0)}
                     </div>
-
                     <div class="grid grid-cols-2 gap-3">
-                        <div class="bg-orange-50 p-2 rounded-lg text-center border border-orange-100">
+                        <div class="bg-orange-50 dark:bg-orange-900/20 p-2 rounded-lg text-center border border-orange-100 dark:border-orange-900/50">
                             <div class="text-xs text-orange-400 mb-1">距离周末</div>
                             <div class="text-xl font-bold text-orange-500">${nextWeekend.daysUntil} <span class="text-xs font-normal">天</span></div>
                         </div>
-                        <div class="bg-green-50 p-2 rounded-lg text-center border border-green-100">
+                        <div class="bg-green-50 dark:bg-green-900/20 p-2 rounded-lg text-center border border-green-100 dark:border-green-900/50">
                             <div class="text-xs text-green-400 mb-1">距离${nextHoliday.name}</div>
                             <div class="text-xl font-bold text-green-500">${nextHoliday.until} <span class="text-xs font-normal">天</span></div>
                         </div>
                     </div>
-
-                    <div class="relative bg-slate-50 p-3 rounded-lg text-sm text-slate-600 italic border-l-4 border-cyan-400">
-                        "${data.moyuQuote || '好好工作，努力摸鱼。'}"
-                    </div>
+                    <div class="relative bg-slate-50 dark:bg-slate-700/50 p-3 rounded-lg text-sm text-slate-600 dark:text-slate-300 italic border-l-4 border-cyan-400">"${data.moyuQuote || '好好工作，努力摸鱼。'}"</div>
                 </div>
             `;
         }
-
-        // --- 其他渲染函数 ---
 
         function renderOil(container, data) {
             const region = data.region || currentOilRegion; 
             const items = data.items || [];
             const updateTime = data.updated ? data.updated.split(' ')[0] : '';
-
             const wrapper = document.createElement('div');
             wrapper.className = 'flex flex-col gap-3';
-
             const header = document.createElement('div');
-            header.className = 'flex justify-between items-end border-b border-green-100 pb-2';
-            
+            header.className = 'flex justify-between items-end border-b border-green-100 dark:border-green-900 pb-2';
             header.innerHTML = `
-                <div class="oil-city-btn flex items-center gap-1 text-green-700 font-bold cursor-pointer hover:text-green-900 transition-colors group" title="点击切换城市">
+                <div class="oil-city-btn flex items-center gap-1 text-green-700 dark:text-green-400 font-bold cursor-pointer hover:text-green-900 dark:hover:text-green-300 transition-colors group" title="点击切换城市">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                     <span class="underline decoration-dotted underline-offset-4 decoration-green-400 group-hover:decoration-green-700">${region}</span>
                     <svg class="w-3 h-3 ml-0.5 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                 </div>
                 <span class="text-[10px] text-slate-400">${updateTime}</span>
             `;
-
             const btn = header.querySelector('.oil-city-btn');
-            btn.onclick = (e) => {
-                e.stopPropagation(); 
-                window.changeOilCity();
-            };
-
+            btn.onclick = (e) => { e.stopPropagation(); window.changeOilCity(); };
             wrapper.appendChild(header);
-
             const grid = document.createElement('div');
             grid.className = 'grid grid-cols-2 gap-3 mt-1';
-            
             items.forEach(item => {
                 const el = document.createElement('div');
-                el.className = 'bg-green-50/50 rounded-lg p-3 text-center border border-green-100/50 hover:bg-green-50 transition-colors';
+                el.className = 'bg-green-50/50 dark:bg-green-900/20 rounded-lg p-3 text-center border border-green-100/50 dark:border-green-900/50 hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors';
                 const shortName = item.name.replace('汽油', '').replace('柴油', '');
-                
                 el.innerHTML = `
-                    <div class="text-xs text-slate-500 mb-1">${shortName}</div>
-                    <div class="text-lg font-bold text-green-700">${item.price}</div>
+                    <div class="text-xs text-slate-500 dark:text-slate-400 mb-1">${shortName}</div>
+                    <div class="text-lg font-bold text-green-700 dark:text-green-400">${item.price}</div>
                     <div class="text-[10px] text-slate-400 transform scale-90">元/升</div>
                 `;
                 grid.appendChild(el);
             });
-            
             wrapper.appendChild(grid);
             container.appendChild(wrapper);
         }
@@ -361,20 +829,17 @@
             list.className = 'space-y-3';
             data.slice(0, 15).forEach((item, index) => {
                 const li = document.createElement('li');
-                li.className = 'flex items-baseline gap-3 text-sm group cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors';
+                li.className = 'flex items-baseline gap-3 text-sm group cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700 p-1 rounded transition-colors';
                 const title = item.title || item.word || item.keyword || item.name;
                 const url = item.url || item.link;
                 const hot = item.hot || item.heat || item.num || item.score;
-                
                 let rankClass = "text-slate-400 font-mono text-xs w-4 flex-shrink-0";
                 if (index === 0) rankClass = "text-red-500 font-bold font-mono text-xs w-4 flex-shrink-0";
                 else if (index === 1) rankClass = "text-orange-500 font-bold font-mono text-xs w-4 flex-shrink-0";
                 else if (index === 2) rankClass = "text-amber-500 font-bold font-mono text-xs w-4 flex-shrink-0";
-                
-                // 去除了 line-clamp-1，使标题完整显示
                 li.innerHTML = `
                     <span class="${rankClass}">${index + 1}</span>
-                    <a href="${url || '#'}" target="_blank" class="flex-1 hover:text-blue-600 transition-colors">${title}</a>
+                    <a href="${url || '#'}" target="_blank" class="flex-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors text-slate-700 dark:text-slate-200">${title}</a>
                     ${hot ? `<span class="text-xs text-slate-400 whitespace-nowrap">${formatNumber(hot)}</span>` : ''}
                 `;
                 list.appendChild(li);
@@ -388,11 +853,8 @@
             ul.className = 'space-y-3';
             newsList.forEach(news => {
                 const li = document.createElement('li');
-                li.className = 'text-sm text-slate-700 leading-relaxed flex gap-2';
-                li.innerHTML = `
-                    <span class="text-blue-400 mt-1.5 w-1.5 h-1.5 bg-blue-400 rounded-full flex-shrink-0 block"></span>
-                    <span>${news}</span>
-                `;
+                li.className = 'text-sm text-slate-700 dark:text-slate-300 leading-relaxed flex gap-2 news-item';
+                li.innerHTML = `<span class="text-blue-400 mt-1.5 w-1.5 h-1.5 bg-blue-400 rounded-full flex-shrink-0 block"></span><span>${news}</span>`;
                 ul.appendChild(li);
             });
             container.appendChild(ul);
@@ -406,11 +868,7 @@
             imgWrapper.className = 'relative group overflow-hidden rounded-lg';
             imgWrapper.innerHTML = `
                 <img src="${url}" alt="Image" class="w-full h-auto object-cover transition-transform duration-700 group-hover:scale-105" loading="lazy">
-                ${title ? `<div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 text-white text-xs">
-                    <p class="font-bold mb-1">${title}</p>
-                    ${desc ? `<p class="opacity-80 line-clamp-2 scale-95 origin-bottom-left hidden group-hover:block">${desc}</p>` : ''}
-                    ${data.copyright ? `<p class="opacity-60 scale-90 origin-bottom-left mt-1">${data.copyright}</p>` : ''}
-                </div>` : ''}
+                ${title ? `<div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 text-white text-xs"><p class="font-bold mb-1">${title}</p>${desc ? `<p class="opacity-80 line-clamp-2 scale-95 origin-bottom-left hidden group-hover:block">${desc}</p>` : ''}${data.copyright ? `<p class="opacity-60 scale-90 origin-bottom-left mt-1">${data.copyright}</p>` : ''}</div>` : ''}
             `;
             container.appendChild(imgWrapper);
         }
@@ -423,20 +881,11 @@
                 const item = document.createElement('a');
                 item.href = game.link || game.url || '#';
                 item.target = '_blank';
-                item.className = 'block group bg-slate-50 rounded-lg overflow-hidden border border-slate-100 hover:border-blue-200 transition-colors';
+                item.className = 'block group bg-slate-50 dark:bg-slate-700 rounded-lg overflow-hidden border border-slate-100 dark:border-slate-600 hover:border-blue-200 dark:hover:border-blue-500 transition-colors';
                 const cover = game.cover || game.image_url || '';
-                // 去除了 line-clamp-1
                 item.innerHTML = `
-                    <div class="aspect-video w-full overflow-hidden">
-                        <img src="${cover}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500">
-                    </div>
-                    <div class="p-3">
-                        <div class="font-bold text-sm text-slate-800">${game.title}</div>
-                        <div class="text-xs text-slate-500 mt-1 flex justify-between">
-                            <span class="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[10px]">免费</span>
-                            <span>${game.free_end || ''} 截止</span>
-                        </div>
-                    </div>
+                    <div class="aspect-video w-full overflow-hidden"><img src="${cover}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"></div>
+                    <div class="p-3"><div class="font-bold text-sm text-slate-800 dark:text-slate-100">${game.title}</div><div class="text-xs text-slate-500 dark:text-slate-400 mt-1 flex justify-between"><span class="bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-1.5 py-0.5 rounded text-[10px]">免费</span><span>${game.free_end || ''} 截止</span></div></div>
                 `;
                 grid.appendChild(item);
             });
@@ -447,48 +896,25 @@
             container.innerHTML = '';
             let items = [];
             let dateStr = '';
-            if (data.items && Array.isArray(data.items)) {
-                items = data.items;
-                dateStr = data.date; 
-            } else if (Array.isArray(data)) {
-                items = data;
-            } else if (typeof data === 'object') {
-                items = Object.entries(data).map(([year, title]) => ({year, title}));
-            }
+            if (data.items && Array.isArray(data.items)) { items = data.items; dateStr = data.date; } 
+            else if (Array.isArray(data)) { items = data; } 
+            else if (typeof data === 'object') { items = Object.entries(data).map(([year, title]) => ({year, title})); }
             if (dateStr) {
                 const dateHeader = document.createElement('div');
-                dateHeader.className = 'mb-3 font-bold text-amber-600 text-sm flex items-center gap-2';
-                dateHeader.innerHTML = `
-                    <span class="bg-amber-100 px-2 py-0.5 rounded text-amber-700 text-xs">📅 ${dateStr}</span>
-                `;
+                dateHeader.className = 'mb-3 font-bold text-amber-600 dark:text-amber-500 text-sm flex items-center gap-2';
+                dateHeader.innerHTML = `<span class="bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 rounded text-amber-700 dark:text-amber-400 text-xs">📅 ${dateStr}</span>`;
                 container.appendChild(dateHeader);
             }
             const ul = document.createElement('ul');
-            ul.className = 'space-y-3 relative border-l border-amber-200 ml-2 pl-4 py-1';
+            ul.className = 'space-y-3 relative border-l border-amber-200 dark:border-amber-800 ml-2 pl-4 py-1';
             items.slice(0, 15).forEach(item => {
                 const year = item.year || item.date || '年份';
                 const title = item.title || item.event || item; 
                 const link = item.link || null;
-                const type = item.event_type || 'event';
-                const desc = item.description || '';
-                let typeIcon = '';
-                if (type === 'birth') typeIcon = '👶';
-                else if (type === 'death') typeIcon = '🪦';
                 const li = document.createElement('li');
                 li.className = 'text-sm relative group';
-                const titleHtml = link 
-                    ? `<a href="${link}" target="_blank" class="text-slate-700 leading-tight block hover:text-amber-700 transition-colors group-hover:underline" title="${desc}">${title}</a>` 
-                    : `<span class="text-slate-700 leading-tight block" title="${desc}">${typeof title === 'string' ? title : title.title}</span>`;
-                li.innerHTML = `
-                    <span class="absolute -left-[21px] top-1.5 w-2.5 h-2.5 bg-amber-400 rounded-full ring-4 ring-white"></span>
-                    <div class="flex flex-col">
-                        <div class="flex items-center gap-2 mb-0.5">
-                            <span class="font-mono text-amber-600 font-bold text-xs bg-amber-50 px-1 rounded">${year}</span>
-                            ${typeIcon ? `<span class="text-xs opacity-70">${typeIcon}</span>` : ''}
-                        </div>
-                        ${titleHtml}
-                    </div>
-                `;
+                const titleHtml = link ? `<a href="${link}" target="_blank" class="text-slate-700 dark:text-slate-300 leading-tight block hover:text-amber-700 dark:hover:text-amber-400 transition-colors group-hover:underline">${title}</a>` : `<span class="text-slate-700 dark:text-slate-300 leading-tight block">${typeof title === 'string' ? title : title.title}</span>`;
+                li.innerHTML = `<span class="absolute -left-[21px] top-1.5 w-2.5 h-2.5 bg-amber-400 rounded-full ring-4 ring-white dark:ring-slate-800"></span><div class="flex flex-col"><div class="flex items-center gap-2 mb-0.5"><span class="font-mono text-amber-600 dark:text-amber-500 font-bold text-xs bg-amber-50 dark:bg-amber-900/20 px-1 rounded">${year}</span></div>${titleHtml}</div>`;
                 ul.appendChild(li);
             });
             container.appendChild(ul);
@@ -499,82 +925,43 @@
             wrapper.className = 'space-y-4';
             if (data.metals && Array.isArray(data.metals)) {
                 const section = document.createElement('div');
-                section.innerHTML = `
-                    <h3 class="text-xs font-bold text-slate-400 mb-2 uppercase tracking-wider">基础行情</h3>
-                    <div class="grid grid-cols-2 gap-2">
-                        ${data.metals.slice(0, 6).map(metal => `
-                            <div class="bg-yellow-50/50 p-2 rounded border border-yellow-100 flex flex-col items-center">
-                                <span class="text-xs text-slate-500">${metal.name}</span>
-                                <span class="font-bold text-slate-800">${metal.today_price}</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
+                section.innerHTML = `<h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">基础行情</h3><div class="grid grid-cols-2 gap-2">${data.metals.slice(0, 6).map(metal => `<div class="bg-yellow-50/50 dark:bg-yellow-900/20 p-2 rounded border border-yellow-100 dark:border-yellow-900/50 flex flex-col items-center"><span class="text-xs text-slate-500 dark:text-slate-400">${metal.name}</span><span class="font-bold text-slate-800 dark:text-slate-200">${metal.today_price}</span></div>`).join('')}</div>`;
                 wrapper.appendChild(section);
             }
             if (data.stores && Array.isArray(data.stores)) {
                 const section = document.createElement('div');
-                section.innerHTML = `
-                    <h3 class="text-xs font-bold text-slate-400 mb-2 mt-2 uppercase tracking-wider">品牌金价 (部分)</h3>
-                    <div class="grid grid-cols-2 gap-2">
-                        ${data.stores.slice(0, 8).map(store => `
-                            <div class="bg-white p-2 rounded border border-slate-100 flex justify-between items-center text-sm">
-                                <span class="text-slate-600 text-xs">${store.brand}</span>
-                                <span class="font-bold text-orange-500">${store.price}</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
+                section.innerHTML = `<h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 mt-2">品牌金价 (部分)</h3><div class="grid grid-cols-2 gap-2">${data.stores.slice(0, 8).map(store => `<div class="bg-white dark:bg-slate-700/50 p-2 rounded border border-slate-100 dark:border-slate-700 flex justify-between items-center text-sm"><span class="text-slate-600 dark:text-slate-400 text-xs">${store.brand}</span><span class="font-bold text-orange-500 dark:text-orange-400">${store.price}</span></div>`).join('')}</div>`;
                 wrapper.appendChild(section);
             }
             container.appendChild(wrapper);
         }
         
         function renderQuote(container, data) {
-            container.innerHTML = `
-                <div class="text-center py-4 relative group cursor-default">
-                    <span class="text-6xl text-purple-100 absolute top-0 left-0 -translate-y-2 font-serif select-none">"</span>
-                    <p class="text-lg text-slate-700 font-medium italic relative z-10 my-2 px-2">${data.hitokoto || data.text || JSON.stringify(data)}</p>
-                    <div class="text-xs text-right text-slate-400 mt-2 pr-2">—— ${data.from || '佚名'}</div>
-                </div>
-            `;
+            container.innerHTML = `<div class="text-center py-4 relative group cursor-default"><span class="text-6xl text-purple-100 dark:text-purple-900 absolute top-0 left-0 -translate-y-2 font-serif select-none">"</span><p class="text-lg text-slate-700 dark:text-slate-200 font-medium italic relative z-10 my-2 px-2">${data.hitokoto || data.text || JSON.stringify(data)}</p><div class="text-xs text-right text-slate-400 mt-2 pr-2">—— ${data.from || '佚名'}</div></div>`;
         }
 
         function createSkeletonCard(source) {
             const div = document.createElement('div');
-            div.className = 'bg-white rounded-xl shadow-sm border border-slate-200 mb-6 overflow-hidden break-inside-avoid transition-all hover:shadow-md';
+            div.className = 'card-wrapper bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 mb-6 overflow-hidden break-inside-avoid transition-all hover:shadow-md';
             div.id = `card-${source.id}`;
             div.innerHTML = `
-                <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-white">
+                <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between bg-white dark:bg-slate-800">
                     <div class="flex items-center gap-2">
-                        <div class="w-8 h-8 rounded-lg ${source.color} text-white flex items-center justify-center text-sm shadow-sm">
-                            ${source.icon}
-                        </div>
-                        <h2 class="font-bold text-slate-800">${source.name}</h2>
+                        <div class="w-8 h-8 rounded-lg ${source.color} text-white flex items-center justify-center text-sm shadow-sm">${source.icon}</div>
+                        <h2 class="font-bold text-slate-800 dark:text-white">${source.name}</h2>
                     </div>
-                    <button class="refresh-btn p-1.5 text-slate-400 hover:text-blue-500 hover:bg-slate-50 rounded-full transition-all" 
-                            onclick="refreshCard('${source.id}')" title="刷新此卡片">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
+                    <button class="refresh-btn p-1.5 text-slate-400 hover:text-blue-500 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-full transition-all" onclick="refreshCard('${source.id}')" title="刷新此卡片">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                     </button>
                 </div>
-                <div class="card-content p-5 min-h-[100px]">
-                    <div class="animate-pulse space-y-3">
-                        <div class="h-2 bg-slate-100 rounded w-3/4"></div>
-                        <div class="h-2 bg-slate-100 rounded"></div>
-                        <div class="h-2 bg-slate-100 rounded w-5/6"></div>
-                    </div>
-                </div>
+                <div class="card-content p-5 min-h-[100px]"><div class="animate-pulse space-y-3"><div class="h-2 bg-slate-100 dark:bg-slate-700 rounded w-3/4"></div><div class="h-2 bg-slate-100 dark:bg-slate-700 rounded"></div><div class="h-2 bg-slate-100 dark:bg-slate-700 rounded w-5/6"></div></div></div>
             `;
             return div;
         }
 
         function formatNumber(num) {
             if (!num) return '';
-            if (typeof num === 'string' && /[a-zA-Z\u4e00-\u9fa5]/.test(num)) {
-                return num;
-            }
+            if (typeof num === 'string' && /[a-zA-Z\u4e00-\u9fa5]/.test(num)) return num;
             const n = parseInt(num);
             if (isNaN(n)) return num; 
             if (n > 10000) return (n / 10000).toFixed(1) + '万';
